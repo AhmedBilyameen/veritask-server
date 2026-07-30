@@ -1,0 +1,18 @@
+# Environment variables (SECRETS - NEVER COMMIT)
+.env
+.env.local
+.env.production
+*.env
+
+# Dependencies
+node_modules/
+
+# Logs & Temporary files
+*.log
+walkthrough_verification_results.json
+tsc_errors.txt
+eslint_errors.txt
+
+# OS Files
+.DS_Store
+Thumbs.db
