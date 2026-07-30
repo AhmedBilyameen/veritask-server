@@ -49,15 +49,14 @@ const submitReview = async (req, res) => {
       return res.status(403).json({ message: "Only the client can review this task" });
     }
 
-    // ✅ Immutability: one review per task per client — permanent
     const existingReview = await Review.findOne({ task: taskId, client: req.user._id });
-    if (existingReview) {
+    if (existingReview && !["approved"].includes(task.status)) {
       return res.status(400).json({
         message: "You have already submitted a review for this project. Reviews cannot be edited.",
       });
     }
 
-    // Must be in 'approved' state to submit review
+    // Must be in 'approved' state to submit review (or recovering stuck approved task)
     const reviewableStatuses = ["approved"];
     if (!reviewableStatuses.includes(task.status)) {
       return res.status(400).json({
@@ -67,21 +66,21 @@ const submitReview = async (req, res) => {
 
     const talentId = task.assignedTalent;
 
-    // Create the review first (safe: duplicate guard at L53 prevents double-submit).
-    // We do NOT mutate task flags yet — if releasePayment() throws, the task stays
-    // in 'approved' and the whole operation is safely retryable.
-    const review = await Review.create({
-      task: taskId,
-      client: req.user._id,
-      talent: talentId,
-      starRating, qualityRating, communicationRating,
-      professionalismRating,
-      wasOnTime, wouldHireAgain: wouldHireAgain || false,
-      comment,
-      submittedAt: new Date(),
-    });
+    let review = existingReview;
+    if (!review) {
+      review = await Review.create({
+        task: taskId,
+        client: req.user._id,
+        talent: talentId,
+        starRating, qualityRating, communicationRating,
+        professionalismRating,
+        wasOnTime, wouldHireAgain: wouldHireAgain || false,
+        comment,
+        submittedAt: new Date(),
+      });
+    }
 
-    // Update TalentProfile stats
+    // Update TalentProfile stats safely
     const profile = await TalentProfile.findOne({ user: talentId });
     if (profile) {
       const allReviews = await Review.find({ talent: talentId });
@@ -91,13 +90,25 @@ const submitReview = async (req, res) => {
             ((r.starRating) + (r.qualityRating || r.starRating) +
               (r.communicationRating || r.starRating) + (r.professionalismRating || r.starRating)) / 4;
           return sum + avg;
-        }, 0) / allReviews.length;
+        }, 0) / (allReviews.length || 1);
 
       profile.starRating = Math.round(avgRating * 10) / 10;
-      profile.totalTasksCompleted = allReviews.length;
-      if (wasOnTime) profile.totalTasksOnTime = (profile.totalTasksOnTime || 0) + 1;
-      profile.reliabilityFactor =
-        profile.totalTasksCompleted > 0 ? profile.totalTasksOnTime / profile.totalTasksCompleted : 0;
+
+      // Preserve existing seeded/historical completed task count if greater
+      const prevCompleted = profile.totalTasksCompleted || 0;
+      profile.totalTasksCompleted = Math.max(prevCompleted + 1, allReviews.length);
+
+      if (wasOnTime && !existingReview) {
+        profile.totalTasksOnTime = (profile.totalTasksOnTime || 0) + 1;
+      }
+      if (profile.totalTasksOnTime > profile.totalTasksCompleted) {
+        profile.totalTasksOnTime = profile.totalTasksCompleted;
+      }
+
+      const rawReliability =
+        profile.totalTasksCompleted > 0 ? profile.totalTasksOnTime / profile.totalTasksCompleted : 1;
+      profile.reliabilityFactor = Math.min(1, Math.max(0, rawReliability));
+
       profile.calculateTrustScore?.();
       profile.rank = recalculateRank(profile);
       await profile.save();

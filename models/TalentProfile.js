@@ -91,14 +91,33 @@ const talentProfileSchema = new mongoose.Schema(
 );
 
 talentProfileSchema.methods.calculateTrustScore = function () {
-  const starComponent = (this.starRating / 5) * 100 * 0.4;
-  const reliabilityComponent = this.reliabilityFactor * 100 * 0.6;
+  const rel = Math.min(1, Math.max(0, typeof this.reliabilityFactor === "number" ? this.reliabilityFactor : 0));
+  const star = Math.min(5, Math.max(0, typeof this.starRating === "number" ? this.starRating : 0));
+  const starComponent = (star / 5) * 100 * 0.4;
+  const reliabilityComponent = rel * 100 * 0.6;
   let score = starComponent + reliabilityComponent;
-  if (this.reliabilityFactor < 0.8) {
+  if (rel < 0.8) {
     score = score * 0.5;
   }
-  this.trustScore = Math.round(score);
+  this.trustScore = Math.min(100, Math.max(0, Math.round(score)));
   return this.trustScore;
 };
+
+talentProfileSchema.pre("save", function (next) {
+  if (typeof this.totalTasksCompleted === "number" && typeof this.totalTasksOnTime === "number") {
+    if (this.totalTasksOnTime > this.totalTasksCompleted) {
+      this.totalTasksOnTime = this.totalTasksCompleted;
+    }
+  }
+  if (typeof this.reliabilityFactor === "number") {
+    if (this.reliabilityFactor > 1) this.reliabilityFactor = 1;
+    if (this.reliabilityFactor < 0) this.reliabilityFactor = 0;
+  }
+  if (typeof this.trustScore === "number") {
+    if (this.trustScore > 100) this.trustScore = 100;
+    if (this.trustScore < 0) this.trustScore = 0;
+  }
+  if (typeof next === "function") next();
+});
 
 module.exports = mongoose.model("TalentProfile", talentProfileSchema);

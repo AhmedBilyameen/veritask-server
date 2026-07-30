@@ -666,7 +666,11 @@ const verifyPayment = async (req, res) => {
         }
 
         // Execute payment verification & task state advancement
-        await handleChargeSuccess({ reference: payment.reference || reference });
+        try {
+            await handleChargeSuccess({ reference: payment.reference || reference });
+        } catch (chargeErr) {
+            console.warn(`[verifyPayment] Live charge verification error for '${reference}':`, chargeErr.message);
+        }
 
         const updatedPayment = await Payment.findById(payment._id);
         const updatedTask = await Task.findById(payment.taskId);

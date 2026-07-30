@@ -13,7 +13,7 @@ const VALID_TRANSITIONS = {
   awaiting_funding: ["funded", "cancelled"],
   funded: ["in_progress"],
   in_progress: ["submitted_for_review", "cancelled"],
-  submitted_for_review: ["under_review"],
+  submitted_for_review: ["under_review", "revision_requested", "approved"],
   under_review: ["revision_requested", "approved"],
   revision_requested: ["submitted_for_review", "cancelled"],
   approved: ["payment_released"],

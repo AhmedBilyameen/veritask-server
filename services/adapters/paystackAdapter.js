@@ -16,31 +16,53 @@ const PAYSTACK_BASE = "payapi.io";  // not used directly; calls via fetch/https
 const PAYSTACK_API = "https://api.paystack.co";
 const SECRET = process.env.PAYSTACK_SECRET_KEY;
 
-// ─── Internal HTTP helper ─────────────────────────────────────────────────────
-async function paystackRequest(method, path, body = null) {
-    if (!SECRET) {
-        throw new Error("PAYSTACK_SECRET_KEY is not defined in environment variables.");
-    }
+// ─── Internal HTTP helper (uses https module — reliable across all Node.js versions) ─
+function paystackRequest(method, path, body = null) {
+    return new Promise((resolve, reject) => {
+        if (!SECRET) {
+            return reject(new Error("PAYSTACK_SECRET_KEY is not defined in environment variables."));
+        }
 
-    const url = `${PAYSTACK_API}${path}`;
-    const headers = {
-        Authorization: `Bearer ${SECRET}`,
-        "Content-Type": "application/json",
-    };
+        const postData = body ? JSON.stringify(body) : null;
+        const options = {
+            hostname: "api.paystack.co",
+            port: 443,
+            path,
+            method,
+            headers: {
+                Authorization: `Bearer ${SECRET}`,
+                "Content-Type": "application/json",
+                Accept: "application/json",
+                ...(postData ? { "Content-Length": Buffer.byteLength(postData) } : {}),
+            },
+            timeout: 10000,
+        };
 
-    const response = await fetch(url, {
-        method,
-        headers,
-        body: body ? JSON.stringify(body) : undefined,
+        const req = https.request(options, (res) => {
+            let raw = "";
+            res.on("data", (chunk) => { raw += chunk; });
+            res.on("end", () => {
+                try {
+                    const data = JSON.parse(raw);
+                    if (res.statusCode >= 400) {
+                        return reject(new Error(data.message || `Paystack error: ${res.statusCode}`));
+                    }
+                    resolve(data);
+                } catch (parseErr) {
+                    reject(new Error(`Failed to parse Paystack response: ${raw.slice(0, 120)}`));
+                }
+            });
+        });
+
+        req.on("error", (err) => reject(err));
+        req.on("timeout", () => {
+            req.destroy();
+            reject(new Error("Paystack API request timed out after 10 seconds"));
+        });
+
+        if (postData) req.write(postData);
+        req.end();
     });
-
-    const data = await response.json();
-
-    if (!response.ok) {
-        throw new Error(data.message || `Paystack error: ${response.status}`);
-    }
-
-    return data;
 }
 
 // ─── Adapter Implementation ───────────────────────────────────────────────────
@@ -88,16 +110,27 @@ const paystackAdapter = {
      * @returns { success, amount (in NGN), status, providerData }
      */
     async verifyPayment(reference) {
-        const res = await paystackRequest("GET", `/transaction/verify/${reference}`);
-        const data = res.data;
+        try {
+            const res = await paystackRequest("GET", `/transaction/verify/${reference}`);
+            const data = res.data;
 
-        return {
-            success: data.status === "success",
-            amount: data.amount / 100, // Convert from kobo to NGN
-            status: data.status,
-            currency: data.currency,
-            providerData: data,
-        };
+            return {
+                success: data.status === "success",
+                amount: data.amount / 100, // Convert from kobo to NGN
+                status: data.status,
+                currency: data.currency,
+                providerData: data,
+            };
+        } catch (err) {
+            console.warn(`[PaystackAdapter] verifyPayment failed for ref '${reference}':`, err.message);
+            return {
+                success: false,
+                amount: 0,
+                status: "failed",
+                error: err.message,
+                providerData: null,
+            };
+        }
     },
 
     /**

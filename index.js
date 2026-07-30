@@ -78,6 +78,7 @@ app.use("/api/verification", require("./routes/verificationRoutes"));
 app.use("/api/notifications", require("./routes/notificationRoutes"));
 app.use("/api/wallet", require("./routes/walletRoutes"));
 app.use("/api/payments", require("./routes/paymentRoutes"));
+app.use("/api/workspace", require("./routes/workspaceRoutes"));
 
 app.get("/", (req, res) => {
   res.json({ message: "VeritTask API is running", status: "healthy" });
