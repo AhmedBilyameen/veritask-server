@@ -80,13 +80,15 @@ const seed = async () => {
         await User.deleteMany({ role: "talent" });
         console.log("Cleared existing demo talent users and profiles.");
 
-        const hashed = await bcrypt.hash("Talent@1234", 10);
+        const defaultHashed = await bcrypt.hash("Talent@1234", 10);
+        const ibrahimHashed = await bcrypt.hash("ibrahim123", 10);
 
         for (const data of talentsData) {
+            const userPassword = data.email === "ibrahim@veritask.ng" ? ibrahimHashed : defaultHashed;
             const user = await User.create({
                 name: data.name,
                 email: data.email,
-                password: hashed,
+                password: userPassword,
                 phone: data.phone,
                 role: "talent",
                 location: data.location,
